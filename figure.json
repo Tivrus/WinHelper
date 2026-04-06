@@ -1,0 +1,18 @@
+{
+  // Кружки фигуры. Без файла или с пустым "circles" — ни одного кружка не отображается.
+  //
+  // offsetX / offsetY — смещение центра кружка от точки курсора (WPF DIP-пикселя).
+  // radius            — радиус кружка.
+  // color             — цвет в формате #RRGGBB или #AARRGGBB.
+  // label             — текст или символ внутри кружка.
+  "circles": [
+    { "offsetX":    0, "offsetY": -150, "radius": 40, "color": "#8C4BFF", "label": "pull" },
+    { "offsetX":  106, "offsetY": -106, "radius": 40, "color": "#7B3EE8", "label": "push" },
+    { "offsetX":  150, "offsetY":    0, "radius": 40, "color": "#6A31D1", "label": "stat" },
+    { "offsetX":  106, "offsetY":  106, "radius": 40, "color": "#7B3EE8", "label": "log"  },
+    { "offsetX":    0, "offsetY":  150, "radius": 40, "color": "#8C4BFF", "label": "cmmt" },
+    { "offsetX": -106, "offsetY":  106, "radius": 40, "color": "#9D58FF", "label": "stsh" },
+    { "offsetX": -150, "offsetY":    0, "radius": 40, "color": "#AE65FF", "label": "brch" },
+    { "offsetX": -106, "offsetY": -106, "radius": 40, "color": "#9D58FF", "label": "merg" }
+  ]
+}
