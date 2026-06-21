@@ -1,18 +1,26 @@
-# Build
+## Build output
 [Bb]in/
 [Oo]bj/
 [Dd]ebug/
 [Rr]elease/
-x64/
-x86/
-[Aa][Rr][Mm]/
-[Aa][Rr][Mm]64/
-bld/
 [Bb]uild/
 [Ll]og/
 [Ll]ogs/
+publish/
+artifacts/
+out/
 
-# Visual Studio
+## .NET
+project.lock.json
+project.fragment.lock.json
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
+
+## Visual Studio
 .vs/
 *.user
 *.userosscache
@@ -21,40 +29,52 @@ bld/
 *.rsuser
 *.VC.db
 *.VC.VC.opendb
+*.opendb
+*.cachefile
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.pfx
+*.publishsettings
+*.DotSettings.user
 
-# Rider / JetBrains
+## Rider / JetBrains
 .idea/
 *.sln.iml
 
-# VS Code (optional local settings — uncomment if you want to ignore)
-# .vscode/
+## VS Code / Cursor (local editor settings)
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.cursor/
 
-# NuGet
-*.nupkg
-**/packages/*
-!**/packages/build/
-project.lock.json
-project.fragment.lock.json
-artifacts/
-
-# Test / coverage
+## Test & coverage
 [Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
 *.trx
 *.coverage
 *.coveragexml
 coverage*.json
 coverage*.xml
+*.VisualState.xml
 
-# .NET tooling
-*.DotSettings.user
-
-# Windows
+## Windows
 Thumbs.db
+Thumbs.db:encryptable
 ehthumbs.db
+ehthumbs_vista.db
 Desktop.ini
 $RECYCLE.BIN/
+*.lnk
 
-# Misc
+## macOS (if repo is opened on Mac)
+.DS_Store
+.AppleDouble
+.LSOverride
+
+## Misc
 *.tmp
 *.temp
 *.log
@@ -62,3 +82,6 @@ $RECYCLE.BIN/
 *.pidb
 *.svclog
 *.scc
+*.bak
+*.swp
+*~

@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
@@ -14,7 +15,7 @@ using HorizontalAlignment = System.Windows.HorizontalAlignment;
 using VerticalAlignment   = System.Windows.VerticalAlignment;
 using Point               = System.Windows.Point;
 
-namespace TransparentHotkeyUtility.UI;
+namespace TransparentHotkeyUtility.Presentation.Figure;
 
 /// <summary>Creates and animates WPF visual elements for a single <see cref="CircleConfig"/>.</summary>
 internal static class CircleElementFactory
@@ -22,16 +23,21 @@ internal static class CircleElementFactory
     private static readonly Duration AnimDuration = new(TimeSpan.FromMilliseconds(160));
     private static readonly CubicEase AnimEase    = new() { EasingMode = EasingMode.EaseOut };
 
-    // Resting stroke opacity, stored as a ratio so animation can target it
     private const double StrokeRestOpacity = 140.0 / 255.0;
+    private const double HoverScale        = 1.13;
 
-    internal static Grid Create(CircleConfig cfg)
+    internal sealed class PinState
+    {
+        public bool IsPinned { get; set; }
+        public bool ScaleWhenPinned { get; set; } = true;
+    }
+
+    internal static Grid Create(CircleConfig cfg, Action<CircleConfig>? onActivated = null)
     {
         var body  = ColorUtils.Parse(cfg.Color);
         var dark  = ColorUtils.Darken(body, 0.35f);
         var light = ColorUtils.Lighten(body, 0.35f);
 
-        // Glow colour: slightly shifted toward blue for the purple family
         var glowColor = Color.FromRgb(
             (byte)Math.Max(0,   body.R - 30),
             (byte)Math.Max(0,   body.G - 20),
@@ -79,30 +85,72 @@ internal static class CircleElementFactory
             IsHitTestVisible    = false,
         };
 
+        var state = new CircleState(glowEffect, stroke);
+        var pin   = new PinState();
         var container = new Grid
         {
             Width                 = cfg.Radius * 2,
             Height                = cfg.Radius * 2,
             RenderTransformOrigin = new Point(0.5, 0.5),
             RenderTransform       = new ScaleTransform(1, 1),
-            Tag                   = new CircleState(glowEffect, stroke),
+            Tag                   = new CircleVisualTag(state, cfg, onActivated, pin),
         };
+        bool isClickable = !string.IsNullOrWhiteSpace(cfg.Action)
+                        || !string.IsNullOrWhiteSpace(cfg.ExecutablePath)
+                        || cfg.Type == CircleType.Group
+                        || (cfg.Type == CircleType.Modal && cfg.FormFields.Count > 0);
+        if (isClickable)
+            container.Cursor = System.Windows.Input.Cursors.Hand;
+
         container.Children.Add(ellipse);
         container.Children.Add(label);
 
-        container.MouseEnter += (s, _) => Animate((Grid)s!, true);
-        container.MouseLeave += (s, _) => Animate((Grid)s!, false);
+        // Для группы — иконка папки в правом нижнем углу
+        if (cfg.Type == CircleType.Group)
+        {
+            var folderMark = new TextBlock
+            {
+                Text                = "📂",
+                FontSize            = Math.Max(7, cfg.Radius * 0.22),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment   = VerticalAlignment.Bottom,
+                Margin              = new Thickness(0, 0, 2, 1),
+                IsHitTestVisible    = false,
+                Opacity             = 0.80,
+            };
+            container.Children.Add(folderMark);
+        }
+
+        container.MouseEnter += (s, _) => ApplyVisualState((Grid)s!);
+        container.MouseLeave += (s, _) => ApplyVisualState((Grid)s!);
+
+        container.MouseLeftButtonUp += (_, e) =>
+        {
+            if (!isClickable || onActivated is null) return;
+            e.Handled = true;
+            onActivated(cfg);
+        };
 
         return container;
     }
 
-    // ── Animation ────────────────────────────────────────────────────────────
-
-    private static void Animate(Grid g, bool hovered)
+    /// <summary>Закрепляет визуальное состояние; можно отключить scale-анимацию для pinned.</summary>
+    internal static void SetPinned(Grid? g, bool pinned, bool scaleWhenPinned = true)
     {
-        if (g.Tag is not CircleState s) return;
+        if (g?.Tag is not CircleVisualTag cvt) return;
+        cvt.Pin.IsPinned = pinned;
+        cvt.Pin.ScaleWhenPinned = scaleWhenPinned;
+        ApplyVisualState(g);
+    }
 
-        double scale = hovered ? 1.13 : 1.0;
+    private static void ApplyVisualState(Grid g)
+    {
+        if (g.Tag is not CircleVisualTag { State: var s, Pin: var pin }) return;
+
+        bool lookHovered = pin.IsPinned || g.IsMouseOver;
+        bool scaleUp     = g.IsMouseOver || (pin.IsPinned && pin.ScaleWhenPinned);
+        double scale     = scaleUp ? HoverScale : 1.0;
+
         if (g.RenderTransform is ScaleTransform st)
         {
             st.BeginAnimation(ScaleTransform.ScaleXProperty,
@@ -112,13 +160,11 @@ internal static class CircleElementFactory
         }
 
         s.Glow.BeginAnimation(DropShadowEffect.OpacityProperty,
-            new DoubleAnimation(hovered ? 0.9 : 0.0, AnimDuration));
+            new DoubleAnimation(lookHovered ? 0.9 : 0.0, AnimDuration));
 
         s.Stroke.BeginAnimation(Brush.OpacityProperty,
-            new DoubleAnimation(hovered ? 1.0 : StrokeRestOpacity, AnimDuration));
+            new DoubleAnimation(lookHovered ? 1.0 : StrokeRestOpacity, AnimDuration));
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static double LabelFontSize(CircleConfig cfg)
     {
@@ -133,4 +179,10 @@ internal static class CircleElementFactory
     }
 
     private record CircleState(DropShadowEffect Glow, SolidColorBrush Stroke);
+
+    private sealed record CircleVisualTag(
+        CircleState   State,
+        CircleConfig  Config,
+        Action<CircleConfig>? OnActivated,
+        PinState      Pin);
 }

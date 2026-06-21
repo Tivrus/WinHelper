@@ -2,8 +2,8 @@ using System.Drawing;
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Interop;
-using TransparentHotkeyUtility.Native;
-using TransparentHotkeyUtility.UI;
+using TransparentHotkeyUtility.Infrastructure.Native;
+using TransparentHotkeyUtility.Presentation.Windows;
 
 namespace TransparentHotkeyUtility;
 
@@ -14,7 +14,6 @@ namespace TransparentHotkeyUtility;
 internal sealed class HotkeyHost : IDisposable
 {
     private const int HotkeyId = 1;
-    private const int VK_OEM_1 = 0xBA; // Ctrl+Alt+;
 
     private readonly IntPtr      _hwnd;
     private readonly HwndSource  _source;
@@ -40,34 +39,65 @@ internal sealed class HotkeyHost : IDisposable
         _source = HwndSource.FromHwnd(_hwnd)!;
         _source.AddHook(WndProc);
 
-        bool ok = NativeMethods.RegisterHotKey(
-            _hwnd, HotkeyId,
-            NativeMethods.MOD_CONTROL | NativeMethods.MOD_ALT,
-            VK_OEM_1);
-
-        if (!ok)
-            System.Windows.MessageBox.Show(
-                "Не удалось зарегистрировать Ctrl+Alt+;\n" +
-                "Возможно, хоткей занят другой программой.",
-                "gitHelper",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Warning);
+        ApplyHotkey();
 
         // ── Системный трей ────────────────────────────────────────────────────
         _tray = new NotifyIcon
         {
             Icon    = SystemIcons.Application,
-            Text    = "gitHelper  (Ctrl+Alt+;)",
+            Text    = "gitHelper",
             Visible = true,
         };
+        UpdateTrayText();
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Открыть / Закрыть", null, (_, _) => TogglePopup());
+        menu.Items.Add("Настройки",         null, (_, _) => OpenSettings());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Выход",             null, (_, _) => System.Windows.Application.Current.Shutdown());
 
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick     += (_, _) => TogglePopup();
+    }
+
+    public bool ApplyHotkey()
+    {
+        NativeMethods.UnregisterHotKey(_hwnd, HotkeyId);
+
+        var settings = Services.SettingsService.Load();
+        int mods = settings.HotkeyModifiers;
+        int vk = settings.HotkeyVirtualKey;
+
+        // Fallback, если ничего не задано
+        if (mods == 0 && vk == 0)
+        {
+            mods = NativeMethods.MOD_CONTROL | NativeMethods.MOD_ALT;
+            vk = 0xBA; // VK_OEM_1 (;)
+        }
+
+        bool ok = NativeMethods.RegisterHotKey(_hwnd, HotkeyId, mods, vk);
+
+        if (!ok)
+            System.Windows.MessageBox.Show(
+                $"Не удалось зарегистрировать хоткей ({settings.HotkeyText}).\n" +
+                "Возможно, он занят другой программой.",
+                "gitHelper",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Warning);
+        
+        UpdateTrayText();
+        return ok;
+    }
+
+    private void UpdateTrayText()
+    {
+        if (_tray != null)
+        {
+            var settings = Services.SettingsService.Load();
+            var txt = settings.HotkeyText;
+            if (string.IsNullOrWhiteSpace(txt)) txt = "Ctrl+Alt+;";
+            _tray.Text = $"gitHelper  ({txt})";
+        }
     }
 
     // ── WM_HOTKEY ─────────────────────────────────────────────────────────────
@@ -88,6 +118,17 @@ internal sealed class HotkeyHost : IDisposable
             _popup.HidePopup();
         else
             _popup.ShowAtCursor(Cursor.Position);
+    }
+
+    private void OpenSettings()
+    {
+        if (_popup.IsVisible)
+        {
+            _popup.Activate();
+            return;
+        }
+
+        _popup.ShowForSettings();
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────

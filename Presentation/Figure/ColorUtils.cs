@@ -1,6 +1,6 @@
 using Color = System.Windows.Media.Color;
 
-namespace TransparentHotkeyUtility.UI;
+namespace TransparentHotkeyUtility.Presentation.Figure;
 
 /// <summary>Pure colour manipulation helpers for WPF Media colours.</summary>
 internal static class ColorUtils

@@ -1,11 +1,98 @@
 {
   "circles": [
-    { "offsetX":     0, "offsetY":  -138, "radius": 62, "color": "#8C4BFF", "label": "save" },
-    { "offsetX":   122, "offsetY":  -102, "radius": 48, "color": "#7B3EE8", "label": "status" },
-    { "offsetX":   182, "offsetY":    18, "radius": 54, "color": "#6A31D1", "label": "push" },
-    { "offsetX":    88, "offsetY":   138, "radius": 46, "color": "#9D58FF", "label": "checkout" },
-    { "offsetX":   -72, "offsetY":   162, "radius": 56, "color": "#A56AFF", "label": "branch" },
-    { "offsetX":  -178, "offsetY":    52, "radius": 44, "color": "#5E2FD4", "label": "commit" },
-    { "offsetX":  -138, "offsetY":  -112, "radius": 52, "color": "#AE65FF", "label": "add" }
+    {
+      "id": "82cf002b854142a0b70ce067492e3283",
+      "offsetX": -164,
+      "offsetY": -109.60000000000002,
+      "radius": 50,
+      "color": "#8C4BFF",
+      "label": "GIT",
+      "type": "Group",
+      "children": [
+        {
+          "id": "5c4afc0d9d434886841a79b602e04c2a",
+          "offsetX": 161.60000000000002,
+          "offsetY": -112.00000000000006,
+          "radius": 40,
+          "color": "#17B336",
+          "label": "SAVE",
+          "type": "Modal",
+          "children": [],
+          "formFields": [
+            {
+              "fieldType": "TextInput",
+              "label": "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 commit",
+              "defaultValue": "",
+              "remember": true,
+              "required": true
+            },
+            {
+              "fieldType": "TextInput",
+              "label": "\u0412\u0435\u0442\u043A\u0430",
+              "defaultValue": "main",
+              "remember": true,
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "6e6b34de6c8641eda474ac1bfec8859d",
+          "offsetX": 72,
+          "offsetY": -148.80000000000007,
+          "radius": 40,
+          "color": "#BEA827",
+          "label": "STATUS",
+          "executablePath": "D:\\programing\\Tools\\GitStatus\\GitStatus.exe",
+          "type": "FireAndForget",
+          "children": [],
+          "formFields": []
+        }
+      ],
+      "formFields": [
+        {
+          "fieldType": "FolderPath",
+          "label": "\u041F\u0430\u043F\u043A\u0430 \u043F\u0440\u043E\u0435\u043A\u0442\u0430",
+          "defaultValue": "D:/programing/",
+          "remember": true,
+          "required": true
+        },
+        {
+          "fieldType": "TextInput",
+          "label": "\u0421\u044B\u043B\u043A\u0430 \u043D\u0430 github",
+          "defaultValue": "https://github.com/Tivrus/",
+          "remember": true,
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "6e7dc91d6434413ebcd4603542f62e92",
+      "offsetX": 122.40000000000009,
+      "offsetY": -54.40000000000009,
+      "radius": 45,
+      "color": "#71D983",
+      "label": "status",
+      "executablePath": "D:\\programing\\Tools\\GitStatus\\GitStatus.exe",
+      "type": "Modal",
+      "children": [],
+      "formFields": [
+        {
+          "fieldType": "FolderPath",
+          "label": "\u041F\u0430\u043F\u043A\u0430 \u043F\u0440\u043E\u0435\u043A\u0442\u0430",
+          "defaultValue": "D:/programing/",
+          "remember": true,
+          "required": true,
+          "savedValue": "D:/programing/ParserScratch"
+        },
+        {
+          "fieldType": "TextInput",
+          "label": "\u0421\u044B\u043B\u043A\u0430 \u043D\u0430 github",
+          "defaultValue": "https://github.com/Tivrus/",
+          "remember": true,
+          "required": true,
+          "savedValue": "https://github.com/Tivrus/ParserScratch"
+        }
+      ]
+    }
   ]
 }
