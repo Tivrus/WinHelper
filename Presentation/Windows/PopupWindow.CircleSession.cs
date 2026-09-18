@@ -12,7 +12,7 @@ using TextBox = System.Windows.Controls.TextBox;
 
 namespace TransparentHotkeyUtility.Presentation.Windows;
 
-/// <summary>Клики по кружкам, внешние .exe, модальная форма с динамическими полями.</summary>
+/// <summary>Клики по кружкам, внешние .exe/.ahk, модальная форма с динамическими полями.</summary>
 public partial class PopupWindow
 {
     /// <summary>
@@ -21,13 +21,13 @@ public partial class PopupWindow
     /// </summary>
     private List<CircleConfig> GetAncestorGroupsWithFormFields(CircleConfig target)
     {
-        foreach (var root in _figureConfig.Circles)
+        foreach (var root in CurrentCircles)
         {
             if (ReferenceEquals(root, target))
                 return [];
         }
 
-        foreach (var root in _figureConfig.Circles)
+        foreach (var root in CurrentCircles)
         {
             var ordered = new List<CircleConfig>();
             if (TryCollectAncestorGroups(root, target, ordered))
@@ -117,36 +117,25 @@ public partial class PopupWindow
 
         if (cfg.Type == CircleType.FireAndForget && hasExe)
         {
-            try
-            {
-                var argumentParts = new List<string>();
-                foreach (var g in ancestorGroups)
-                    DynamicFormView.AppendStoredArgumentParts(g, argumentParts);
-                DynamicFormView.AppendStoredArgumentParts(cfg, argumentParts);
-                ExternalProcessLauncher.Start(cfg.ExecutablePath!, argumentParts);
-            }
-            catch (Exception ex)
-            {
-                ShowMainError($"Не удалось запустить: {ex.Message}");
-            }
+            var argumentParts = new List<string>();
+            foreach (var g in ancestorGroups)
+                DynamicFormView.AppendStoredArgumentParts(g, argumentParts);
+            DynamicFormView.AppendStoredArgumentParts(cfg, argumentParts);
+
+            // Сначала процесс — потом UI, чтобы скрипт стартовал без ожидания HidePopup.
+            ExternalProcessLauncher.Start(cfg.ExecutablePath!, argumentParts);
             HidePopup();
             return;
         }
 
         if (cfg.Type == CircleType.Modal && cfg.FormFields.Count == 0 && hasExe)
         {
-            try
-            {
-                var argumentParts = new List<string>();
-                foreach (var g in ancestorGroups)
-                    DynamicFormView.AppendStoredArgumentParts(g, argumentParts);
-                DynamicFormView.AppendStoredArgumentParts(cfg, argumentParts);
-                ExternalProcessLauncher.Start(cfg.ExecutablePath!, argumentParts);
-            }
-            catch (Exception ex)
-            {
-                ShowMainError($"Не удалось запустить: {ex.Message}");
-            }
+            var argumentParts = new List<string>();
+            foreach (var g in ancestorGroups)
+                DynamicFormView.AppendStoredArgumentParts(g, argumentParts);
+            DynamicFormView.AppendStoredArgumentParts(cfg, argumentParts);
+
+            ExternalProcessLauncher.Start(cfg.ExecutablePath!, argumentParts);
             HidePopup();
             return;
         }
@@ -173,6 +162,8 @@ public partial class PopupWindow
 
         if (_activeModalNode is not null)
         {
+            _figure.MagnetInteractive = false;
+            _figure.ResetMagnet();
             CircleElementFactory.SetPinned(_activeModalNode.Visual, true);
             if (centerCircle)
                 _figure.AnimateToCenter(_activeModalNode, _anchorCx, _anchorCy, PositionInputCard);
@@ -214,6 +205,7 @@ public partial class PopupWindow
             if (instant)
             {
                 _figure.SnapToRest(node);
+                _figure.MagnetInteractive = true;
             }
             else
             {
@@ -263,19 +255,11 @@ public partial class PopupWindow
         if (needSave)
             FigureConfigService.Save(_figureConfig);
 
-        if (!string.IsNullOrWhiteSpace(_activeModalConfig.ExecutablePath))
-        {
-            try
-            {
-                ExternalProcessLauncher.Start(_activeModalConfig.ExecutablePath, argumentParts);
-            }
-            catch (Exception ex)
-            {
-                TxtModalError.Text       = $"Ошибка: {ex.Message}";
-                TxtModalError.Visibility = Visibility.Visible;
-                return;
-            }
-        }
+        var exePath = _activeModalConfig.ExecutablePath;
+        var args    = argumentParts;
+
+        if (!string.IsNullOrWhiteSpace(exePath))
+            ExternalProcessLauncher.Start(exePath, args);
 
         ExitModalMode();
         HidePopup();

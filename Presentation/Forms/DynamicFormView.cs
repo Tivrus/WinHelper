@@ -1,7 +1,11 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
+using TransparentHotkeyUtility.Infrastructure.Native;
 using TransparentHotkeyUtility.Models;
+using TransparentHotkeyUtility.Presentation.Windows;
 using Color = System.Windows.Media.Color;
 using WpfFontFamily = System.Windows.Media.FontFamily;
 using WpfPanel = System.Windows.Controls.Panel;
@@ -245,11 +249,23 @@ internal static class DynamicFormView
                     };
                     browseBtn.Click += (_, _) =>
                     {
-                        using var dlg = new WF.FolderBrowserDialog();
-                        if (!string.IsNullOrWhiteSpace(txt.Text))
-                            dlg.SelectedPath = txt.Text;
-                        if (dlg.ShowDialog() == WF.DialogResult.OK)
-                            txt.Text = dlg.SelectedPath;
+                        void ShowDlg()
+                        {
+                            using var dlg = new WF.FolderBrowserDialog();
+                            if (!string.IsNullOrWhiteSpace(txt.Text) && Directory.Exists(txt.Text))
+                                dlg.SelectedPath = txt.Text;
+                            var wnd = Window.GetWindow(resourceScope);
+                            var result = wnd is not null
+                                ? dlg.ShowDialog(new Win32Window(new WindowInteropHelper(wnd).Handle))
+                                : dlg.ShowDialog();
+                            if (result == WF.DialogResult.OK)
+                                txt.Text = dlg.SelectedPath;
+                        }
+
+                        if (resourceScope is PopupWindow popup)
+                            popup.SuppressDeactivatedWhile(ShowDlg);
+                        else
+                            ShowDlg();
                     };
                     Grid.SetColumn(browseBtn, 1);
                     grid.Children.Add(browseBtn);

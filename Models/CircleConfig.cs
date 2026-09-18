@@ -33,8 +33,8 @@ public sealed class CircleConfig
     public string? Action { get; set; }
 
     /// <summary>
-    /// Путь к исполняемому файлу (.exe), запускаемому при клике.
-    /// Актуально только при <see cref="Type"/> == <see cref="CircleType.FireAndForget"/>.
+    /// Путь к исполняемому файлу (.exe) или скрипту AutoHotkey v2 (.ahk), запускаемому при клике.
+    /// Актуально при <see cref="Type"/> == <see cref="CircleType.FireAndForget"/> или Modal с подтверждением.
     /// </summary>
     public string? ExecutablePath { get; set; }
 
@@ -51,8 +51,8 @@ public sealed class CircleConfig
 
     /// <summary>
     /// Поля динамической формы.
-    /// Для <see cref="CircleType.Modal"/> — аргументы к .exe этого кружка;
-    /// для <see cref="CircleType.Group"/> — общий префикс аргументов для любого дочернего кружка с .exe (перед аргументами ребёнка).
+    /// Для <see cref="CircleType.Modal"/> — аргументы к .exe/.ahk этого кружка;
+    /// для <see cref="CircleType.Group"/> — общий префикс аргументов для любого дочернего кружка с .exe/.ahk (перед аргументами ребёнка).
     /// Значения (кроме <see cref="FormFieldType.Label"/>) передаются в том же порядке, в котором перечислены поля.
     /// </summary>
     public List<FormFieldConfig> FormFields { get; set; } = new();

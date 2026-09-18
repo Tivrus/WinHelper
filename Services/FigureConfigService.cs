@@ -37,7 +37,7 @@ internal static class FigureConfigService
                 var config = JsonSerializer.Deserialize<FigureConfig>(
                     File.ReadAllText(FilePath), JsonOpts);
                 config ??= new FigureConfig();
-                EnsureCircleIds(config.Circles);
+                Normalize(config);
                 return config;
             }
         }
@@ -63,10 +63,35 @@ internal static class FigureConfigService
     {
         try
         {
-            EnsureCircleIds(config.Circles);
+            Normalize(config);
             File.WriteAllText(FilePath, JsonSerializer.Serialize(config, JsonOpts));
         }
         catch { }
+    }
+
+    /// <summary>Миграция: если страниц нет, но есть circles — создаём первую страницу.</summary>
+    private static void Normalize(FigureConfig config)
+    {
+        if (config.Pages.Count == 0)
+        {
+            config.Pages.Add(new FigurePage
+            {
+                Name    = "Страница 1",
+                Circles = config.Circles,
+            });
+        }
+
+        // Держим Circles синхронизированным с первой страницей (обратная совместимость)
+        config.Circles = config.Pages[0].Circles;
+
+        foreach (var page in config.Pages)
+        {
+            if (string.IsNullOrWhiteSpace(page.Id))
+                page.Id = Guid.NewGuid().ToString("N");
+            if (string.IsNullOrWhiteSpace(page.Name))
+                page.Name = "Страница";
+            EnsureCircleIds(page.Circles);
+        }
     }
 
     private static void EnsureCircleIds(IEnumerable<CircleConfig> circles)

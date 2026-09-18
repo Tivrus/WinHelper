@@ -494,6 +494,25 @@
 
         </Canvas><!-- конец MainCanvas -->
 
+        <!-- Индикатор текущей страницы (при >1 странице) -->
+        <Border x:Name="PageIndicator"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Bottom"
+                Margin="0,0,0,18"
+                Background="#CC130A24"
+                BorderBrush="#6441D2"
+                BorderThickness="1"
+                CornerRadius="10"
+                Padding="12,5"
+                Visibility="Collapsed">
+            <TextBlock x:Name="PageIndicatorText"
+                       Text="1 / 1"
+                       Foreground="#C8AAFF"
+                       FontFamily="Segoe UI"
+                       FontSize="11"
+                       FontWeight="SemiBold"/>
+        </Border>
+
         <!-- Левая панель настроек: список кружков + кнопки + / 🗑 -->
         <Border x:Name="SettingsPanel"
                 HorizontalAlignment="Left"
@@ -512,11 +531,56 @@
 
                 <!-- Заголовок -->
                 <Border Grid.Row="0" Background="#0E0A1A" Padding="16,14">
-                    <TextBlock Text="⬤  Настройки кружка"
-                               Foreground="#C8AAFF"
-                               FontFamily="Segoe UI"
-                               FontSize="14"
-                               FontWeight="SemiBold"/>
+                    <StackPanel>
+                        <TextBlock Text="⬤  Настройки кружка"
+                                   Foreground="#C8AAFF"
+                                   FontFamily="Segoe UI"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"/>
+                        <!-- Переключение страниц -->
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button x:Name="BtnPagePrev"
+                                    Content="‹"
+                                    Style="{StaticResource SettingsNavBtn}"
+                                    FontSize="16"
+                                    Width="30" Height="26"
+                                    Margin="0,0,6,0"
+                                    ToolTip="Предыдущая страница"
+                                    Click="BtnPagePrev_Click"/>
+                            <TextBlock x:Name="TxtPageName"
+                                       Text="Страница 1"
+                                       Foreground="#E1D7FF"
+                                       FontFamily="Segoe UI"
+                                       FontSize="12"
+                                       VerticalAlignment="Center"
+                                       MinWidth="90"
+                                       TextAlignment="Center"/>
+                            <Button x:Name="BtnPageNext"
+                                    Content="›"
+                                    Style="{StaticResource SettingsNavBtn}"
+                                    FontSize="16"
+                                    Width="30" Height="26"
+                                    Margin="6,0,6,0"
+                                    ToolTip="Следующая страница"
+                                    Click="BtnPageNext_Click"/>
+                            <Button x:Name="BtnAddPage"
+                                    Content="+"
+                                    Style="{StaticResource SettingsNavBtn}"
+                                    FontSize="14"
+                                    Width="26" Height="26"
+                                    Margin="6,0,0,0"
+                                    ToolTip="Добавить страницу"
+                                    Click="BtnAddPage_Click"/>
+                            <Button x:Name="BtnDeletePage"
+                                    Content="🗑"
+                                    Style="{StaticResource SettingsNavBtn}"
+                                    FontSize="12"
+                                    Width="26" Height="26"
+                                    Margin="4,0,0,0"
+                                    ToolTip="Удалить страницу"
+                                    Click="BtnDeletePage_Click"/>
+                        </StackPanel>
+                    </StackPanel>
                 </Border>
 
                 <!-- Свойства выбранного кружка -->
@@ -527,7 +591,7 @@
 
                         <!-- Подсказка когда ничего не выбрано -->
                         <TextBlock x:Name="SettingsHintText"
-                                   Text="Кликните по кружку,&#10;чтобы выбрать его"
+                                   Text="Кликните по кружку,&#10;чтобы выбрать его&#10;&#10;Ctrl+C — копировать&#10;Ctrl+V — вставить"
                                    Foreground="#4A4060"
                                    FontFamily="Segoe UI"
                                    FontSize="12"
@@ -569,9 +633,9 @@
                                 </UniformGrid>
                             </Border>
 
-                            <!-- Путь к .exe (только для типа «Команда») -->
+                            <!-- Путь к .exe / .ahk -->
                             <StackPanel x:Name="ExeSection" Visibility="Collapsed" Margin="0,0,0,18">
-                                <TextBlock Text="Исполняемый файл (.exe)"
+                                <TextBlock Text="Исполняемый файл (.exe / .ahk v2)"
                                            Foreground="#9A80CC"
                                            FontFamily="Segoe UI" FontSize="11"
                                            Margin="0,0,0,5"/>
@@ -599,7 +663,7 @@
                                             Content="…"
                                             Height="34"
                                             Style="{StaticResource BrowseBtn}"
-                                            ToolTip="Выбрать .exe"
+                                            ToolTip="Выбрать .exe или .ahk (AutoHotkey v2)"
                                             Click="BtnBrowseExe_Click"/>
                                 </Grid>
                             </StackPanel>
@@ -778,7 +842,7 @@
                                   Margin="0,0,0,10"
                                   ToolTip="Включено — фигура появляется под курсором.&#10;Выключено — фигура появляется по центру экрана."/>
                         <!-- Настройка хоткея вызова -->
-                        <TextBlock Text="Хоткей вызова"
+                        <TextBlock Text="Клавиша / кнопка мыши"
                                    Foreground="#9A80CC"
                                    FontFamily="Segoe UI" FontSize="11"
                                    HorizontalAlignment="Center"
@@ -796,8 +860,9 @@
                                      HorizontalContentAlignment="Center"
                                      IsReadOnly="True"
                                      Cursor="Hand"
-                                     ToolTip="Кликните, чтобы задать новый хоткей"
+                                     ToolTip="Кликните и нажмите любую клавишу или кнопку мыши&#10;(в т.ч. Mouse4 / Mouse5). Модификаторы необязательны."
                                      PreviewKeyDown="TxtHotkey_PreviewKeyDown"
+                                     PreviewMouseDown="TxtHotkey_PreviewMouseDown"
                                      GotFocus="TxtHotkey_GotFocus"
                                      LostFocus="TxtHotkey_LostFocus"/>
                         </Border>

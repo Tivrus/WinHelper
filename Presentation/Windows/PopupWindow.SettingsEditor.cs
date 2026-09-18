@@ -47,6 +47,25 @@ public partial class PopupWindow
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Ctrl+C / Ctrl+V для кружков — только в настройках и вне текстовых полей
+        if (_settingsMode
+            && Keyboard.Modifiers == ModifierKeys.Control
+            && Keyboard.FocusedElement is not TextBox)
+        {
+            if (e.Key == Key.C)
+            {
+                CopySelectedCircle();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.V)
+            {
+                PasteCircle();
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (e.Key != Key.Escape) return;
         e.Handled = true;
 
@@ -60,10 +79,73 @@ public partial class PopupWindow
         HidePopup();
     }
 
+    // ── Буфер обмена кружков (Ctrl+C / Ctrl+V, работает между страницами) ────
+
+    private CircleConfig? _circleClipboard;
+
+    private void CopySelectedCircle()
+    {
+        var cfg = GetCurrentCfg();
+        if (cfg is null) return;
+        _circleClipboard = DeepCloneCircle(cfg);
+    }
+
+    private void PasteCircle()
+    {
+        if (_circleClipboard is null) return;
+
+        var clone = DeepCloneCircle(_circleClipboard);
+        RegenerateCircleIds(clone);
+
+        var selected = GetCurrentCfg();
+
+        // Выделена группа — вставляем внутрь неё
+        if (selected is not null && selected.Type == CircleType.Group)
+        {
+            clone.OffsetX = 0;
+            clone.OffsetY = -120;
+            selected.Children.Add(clone);
+            RebuildFigureInSettings();
+            SelectConfig(clone);
+            return;
+        }
+
+        // Выделен обычный кружок — вставляем рядом (в ту же группу или корень)
+        if (selected is not null)
+        {
+            var parent = GetParentGroup(selected);
+            if (parent is not null)
+            {
+                parent.Children.Add(clone);
+                RebuildFigureInSettings();
+                SelectConfig(clone);
+                return;
+            }
+        }
+
+        // Ничего не выделено — в корень текущей страницы
+        CurrentCircles.Add(clone);
+        RebuildFigureInSettings();
+        SelectConfig(clone);
+    }
+
+    private static CircleConfig DeepCloneCircle(CircleConfig cfg)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(cfg);
+        return System.Text.Json.JsonSerializer.Deserialize<CircleConfig>(json)!;
+    }
+
+    private static void RegenerateCircleIds(CircleConfig cfg)
+    {
+        cfg.Id = Guid.NewGuid().ToString("N");
+        foreach (var child in cfg.Children)
+            RegenerateCircleIds(child);
+    }
+
     private CircleConfig? GetCurrentCfg()
     {
         if (_selectedConfigId is null) return null;
-        return FindConfigById(_figureConfig.Circles, _selectedConfigId);
+        return FindConfigById(CurrentCircles, _selectedConfigId);
     }
 
     private CircleConfig? FindConfigById(IEnumerable<CircleConfig> list, string id)
@@ -79,7 +161,7 @@ public partial class PopupWindow
 
     private CircleConfig? GetParentGroup(CircleConfig target)
     {
-        foreach (var root in _figureConfig.Circles)
+        foreach (var root in CurrentCircles)
         {
             if (ReferenceEquals(root, target)) return null;
             if (FindParent(root, target) is { } found)
@@ -104,9 +186,8 @@ public partial class PopupWindow
         
         BtnDeleteCircle.IsEnabled = cfg is not null;
 
-        // Снимаем пин со всех, ставим на выбранный
         foreach (var node in _figure.GetAllNodes())
-            CircleElementFactory.SetPinned(node.Visual, ReferenceEquals(node.Config, cfg), scaleWhenPinned: false);
+            CircleElementFactory.SetSelected(node.Visual, ReferenceEquals(node.Config, cfg));
 
         if (cfg is null)
         {
@@ -159,9 +240,18 @@ public partial class PopupWindow
         // Переподключаем Drag для новых узлов
         _drag.EnableForTree(_figure.RootNodes, SelectConfig);
 
-        // Обновляем подсветку
+        // Новые узлы после Expand — в режим настроек + кольцо на выбранном
+        ApplySettingsVisualMode(target);
+    }
+
+    /// <summary>В настройках: без hover-scale, выделение пунктирным кольцом.</summary>
+    private void ApplySettingsVisualMode(CircleConfig? selected)
+    {
         foreach (var n in _figure.GetAllNodes())
-            CircleElementFactory.SetPinned(n.Visual, ReferenceEquals(n.Config, target), scaleWhenPinned: false);
+        {
+            CircleElementFactory.SetSettingsMode(n.Visual, true);
+            CircleElementFactory.SetSelected(n.Visual, selected is not null && ReferenceEquals(n.Config, selected));
+        }
     }
 
     private void PopulatePropsFields(CircleConfig cfg)
@@ -301,8 +391,10 @@ public partial class PopupWindow
     private void RebuildFigureInSettings()
     {
         var savedId = _selectedConfigId;
-        _figure.Build(_anchorCx, _anchorCy, _figureConfig, OnCircleActivated);
-        SelectConfig(savedId != null ? FindConfigById(_figureConfig.Circles, savedId) : null);
+        _figure.Build(_anchorCx, _anchorCy, CurrentCircles, OnCircleActivated);
+        ApplySettingsVisualMode(null);
+        _drag.EnableForTree(_figure.RootNodes, SelectConfig);
+        SelectConfig(savedId != null ? FindConfigById(CurrentCircles, savedId) : null);
     }
 
     private void BtnAddCircle_Click(object sender, RoutedEventArgs e)
@@ -328,7 +420,7 @@ public partial class PopupWindow
             OffsetX = 0, OffsetY = -200, Radius = 45,
             Color = "#8C4BFF", Label = "new",
         };
-        _figureConfig.Circles.Add(newRoot);
+        CurrentCircles.Add(newRoot);
         RebuildFigureInSettings();
         SelectConfig(newRoot);
     }
@@ -347,7 +439,7 @@ public partial class PopupWindow
             return;
         }
 
-        _figureConfig.Circles.Remove(cfg);
+        CurrentCircles.Remove(cfg);
         RebuildFigureInSettings();
         SelectConfig(null);
     }
@@ -537,15 +629,18 @@ public partial class PopupWindow
             };
             browseBtn.Click += (_, _) =>
             {
-                using var dlg = new WF.FolderBrowserDialog();
-                if (!string.IsNullOrWhiteSpace(folderTb.Text) && Directory.Exists(folderTb.Text))
-                    dlg.SelectedPath = folderTb.Text;
-                var owner = new Win32Window(new WindowInteropHelper(this).Handle);
-                if (dlg.ShowDialog(owner) == WF.DialogResult.OK)
+                SuppressDeactivatedWhile(() =>
                 {
-                    folderTb.Text = dlg.SelectedPath;
-                    field.DefaultValue = folderTb.Text;
-                }
+                    using var dlg = new WF.FolderBrowserDialog();
+                    if (!string.IsNullOrWhiteSpace(folderTb.Text) && Directory.Exists(folderTb.Text))
+                        dlg.SelectedPath = folderTb.Text;
+                    var owner = new Win32Window(new WindowInteropHelper(this).Handle);
+                    if (dlg.ShowDialog(owner) == WF.DialogResult.OK)
+                    {
+                        folderTb.Text = dlg.SelectedPath;
+                        field.DefaultValue = folderTb.Text;
+                    }
+                });
             };
             Grid.SetColumn(browseBtn, 1);
             grid.Children.Add(browseBtn);

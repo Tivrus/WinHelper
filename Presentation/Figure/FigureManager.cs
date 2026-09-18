@@ -4,21 +4,26 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using TransparentHotkeyUtility.Models;
+using TransparentHotkeyUtility.Services;
 using Color = System.Windows.Media.Color;
 
 namespace TransparentHotkeyUtility.Presentation.Figure;
 
 internal sealed class FigureManager
 {
-    private static readonly Duration AnimDuration = new(TimeSpan.FromMilliseconds(380));
-    private static readonly CubicEase AnimEase    = new() { EasingMode = EasingMode.EaseInOut };
+    private static readonly Duration AnimDuration = new(TimeSpan.FromMilliseconds(160));
+    private static readonly CubicEase AnimEase    = new() { EasingMode = EasingMode.EaseOut };
 
     private readonly Canvas _lineLayer;
     private readonly Canvas _circleLayer;
 
     private readonly List<FigureNode> _rootNodes = new();
     private Action<CircleConfig>? _onActivated;
-    private FigureConfig? _config;
+    private CircleStyle _style = CircleStyle.Default;
+    private bool _settingsMode;
+
+    /// <summary>false в настройках / модалке — магнит не двигает кружки.</summary>
+    public bool MagnetInteractive { get; set; } = true;
 
     public IReadOnlyList<FigureNode> RootNodes => _rootNodes;
 
@@ -29,17 +34,18 @@ internal sealed class FigureManager
     }
 
     public void Build(double anchorCx, double anchorCy, FigureConfig config, Action<CircleConfig>? onActivated)
+        => Build(anchorCx, anchorCy, config.Circles, onActivated);
+
+    public void Build(double anchorCx, double anchorCy, IReadOnlyList<CircleConfig> circles, Action<CircleConfig>? onActivated)
     {
-        _config = config;
         _onActivated = onActivated;
+        _style = CircleStyleService.Load();
 
-        _lineLayer.Children.Clear();
-        _circleLayer.Children.Clear();
-        _rootNodes.Clear();
+        Clear();
 
-        if (config.Circles.Count == 0) return;
+        if (circles.Count == 0) return;
 
-        foreach (var cfg in config.Circles)
+        foreach (var cfg in circles)
         {
             double cx = anchorCx + cfg.OffsetX;
             double cy = anchorCy + cfg.OffsetY;
@@ -53,7 +59,7 @@ internal sealed class FigureManager
             };
             _lineLayer.Children.Add(line);
 
-            var visual = CircleElementFactory.Create(cfg, _onActivated);
+            var visual = CircleElementFactory.Create(cfg, _onActivated, _style);
             _circleLayer.Children.Add(visual);
 
             var node = new FigureNode(cfg, visual, line, null)
@@ -64,6 +70,125 @@ internal sealed class FigureManager
             node.SnapToRest();
             _rootNodes.Add(node);
         }
+    }
+
+    /// <summary>Мгновенно убирает все визуальные элементы фигуры (без анимации).</summary>
+    public void Clear()
+    {
+        _lineLayer.Children.Clear();
+        _circleLayer.Children.Clear();
+        _rootNodes.Clear();
+    }
+
+    public void SetSettingsMode(bool enabled) => _settingsMode = enabled;
+
+    /// <summary>Обновляет магнит по позиции курсора в координатах canvas.</summary>
+    public void UpdateMagnet(System.Windows.Point mouse)
+    {
+        if (!MagnetInteractive || _settingsMode || !_style.MagnetEnabled)
+            return;
+
+        var nodes = GetAllNodes().ToList();
+        if (nodes.Count == 0) return;
+
+        double radius = Math.Max(1, _style.MagnetRadius);
+        double smooth = Math.Clamp(_style.MagnetSmooth, 0.05, 1.0);
+
+        FigureNode? nearest = null;
+        double nearestDist = double.MaxValue;
+
+        // Если курсор прямо над кружком — он приоритетнее (важно для детей внутри группы)
+        foreach (var n in nodes)
+        {
+            if (!n.Visual.IsMouseOver) continue;
+            double dx = mouse.X - n.Cx;
+            double dy = mouse.Y - n.Cy;
+            nearest = n;
+            nearestDist = Math.Sqrt(dx * dx + dy * dy);
+            break;
+        }
+
+        if (nearest is null)
+        {
+            foreach (var n in nodes)
+            {
+                double dx = mouse.X - n.Cx;
+                double dy = mouse.Y - n.Cy;
+                double d = Math.Sqrt(dx * dx + dy * dy);
+                if (d < nearestDist)
+                {
+                    nearestDist = d;
+                    nearest = n;
+                }
+            }
+        }
+
+        double strength = nearest is null || nearestDist >= radius
+            ? 0
+            : SmoothFalloff(1.0 - nearestDist / radius);
+
+        foreach (var n in nodes)
+        {
+            double targetOx = 0, targetOy = 0, targetScale = 1;
+
+            if (strength > 0.001 && nearest is not null)
+            {
+                if (ReferenceEquals(n, nearest))
+                {
+                    double dx = mouse.X - n.Cx;
+                    double dy = mouse.Y - n.Cy;
+                    double len = Math.Max(0.0001, Math.Sqrt(dx * dx + dy * dy));
+                    double pull = Math.Min(_style.MagnetAttract, nearestDist) * strength;
+                    targetOx = dx / len * pull;
+                    targetOy = dy / len * pull;
+                    targetScale = Lerp(1, _style.MagnetScaleNear, strength);
+                }
+                else
+                {
+                    double dx = n.Cx - mouse.X;
+                    double dy = n.Cy - mouse.Y;
+                    double len = Math.Max(0.0001, Math.Sqrt(dx * dx + dy * dy));
+                    double push = _style.MagnetRepel * strength;
+                    targetOx = dx / len * push;
+                    targetOy = dy / len * push;
+                    targetScale = Lerp(1, _style.MagnetScaleFar, strength);
+                }
+            }
+
+            n.MagnetOx = Lerp(n.MagnetOx, targetOx, smooth);
+            n.MagnetOy = Lerp(n.MagnetOy, targetOy, smooth);
+            n.MagnetScale = Lerp(n.MagnetScale, targetScale, smooth);
+            n.ApplyDisplayTransform();
+        }
+    }
+
+    /// <summary>Плавно/мгновенно сбрасывает магнит в покой.</summary>
+    public void ResetMagnet(bool instant = true)
+    {
+        foreach (var n in GetAllNodes())
+        {
+            if (instant)
+            {
+                n.SnapToRest();
+            }
+            else
+            {
+                double smooth = Math.Clamp(_style.MagnetSmooth, 0.05, 1.0);
+                n.MagnetOx = Lerp(n.MagnetOx, 0, smooth);
+                n.MagnetOy = Lerp(n.MagnetOy, 0, smooth);
+                n.MagnetScale = Lerp(n.MagnetScale, 1, smooth);
+                n.ApplyDisplayTransform();
+            }
+        }
+    }
+
+    private static double Lerp(double a, double b, double t) => a + (b - a) * t;
+
+    private static double SmoothFalloff(double t)
+    {
+        t = Math.Clamp(t, 0, 1);
+        // smoothstep
+        return t * t * (3 - 2 * t);
     }
 
     public FigureNode? FindNode(CircleConfig config)
@@ -126,6 +251,7 @@ internal sealed class FigureManager
     {
         if (groupNode.IsExpanded || groupNode.Config.Children.Count == 0) return;
 
+        ResetMagnet();
         CollapseSiblings(groupNode, immediate: false);
 
         CircleElementFactory.SetPinned(groupNode.Visual, true);
@@ -145,7 +271,7 @@ internal sealed class FigureManager
             // Вставляем линию под кружки
             _lineLayer.Children.Add(line);
 
-            var visual = CircleElementFactory.Create(childCfg, _onActivated);
+            var visual = CircleElementFactory.Create(childCfg, _onActivated, _style);
             visual.Opacity = 0;
             Canvas.SetLeft(visual, groupNode.Cx - childCfg.Radius);
             Canvas.SetTop(visual, groupNode.Cy - childCfg.Radius);
@@ -158,13 +284,19 @@ internal sealed class FigureManager
             };
             groupNode.ChildNodes.Add(childNode);
 
+            var captured = childNode;
             var sb = BuildStoryboard(
                 visual, line,
                 groupNode.Cx - childCfg.Radius, groupNode.Cy - childCfg.Radius,
                 restX - childCfg.Radius, restY - childCfg.Radius,
                 groupNode.Cx, groupNode.Cy,
                 restX, restY,
-                () => { });
+                () =>
+                {
+                    captured.Visual.BeginAnimation(UIElement.OpacityProperty, null);
+                    captured.Visual.Opacity = 1;
+                    captured.SnapToRest();
+                });
 
             AddOpacityAnim(sb, visual, 0, 1);
             sb.Begin();
@@ -179,6 +311,7 @@ internal sealed class FigureManager
             return;
         }
 
+        ResetMagnet();
         CircleElementFactory.SetPinned(groupNode.Visual, false);
 
         var toAnimate = groupNode.ChildNodes.ToList();
@@ -236,6 +369,8 @@ internal sealed class FigureManager
 
     public void AnimateToCenter(FigureNode node, double anchorCx, double anchorCy, Action onComplete)
     {
+        ResetMagnet();
+        MagnetInteractive = false;
         BuildStoryboard(
             node.Visual, node.Connector,
             Canvas.GetLeft(node.Visual), Canvas.GetTop(node.Visual),
@@ -247,13 +382,18 @@ internal sealed class FigureManager
 
     public void AnimateToRest(FigureNode node, Action onComplete)
     {
+        ResetMagnet();
         BuildStoryboard(
             node.Visual, node.Connector,
             Canvas.GetLeft(node.Visual), Canvas.GetTop(node.Visual),
             node.Cx - node.Config.Radius, node.Cy - node.Config.Radius,
             node.Connector?.X2 ?? node.Cx, node.Connector?.Y2 ?? node.Cy,
             node.Cx, node.Cy,
-            onComplete).Begin();
+            () =>
+            {
+                MagnetInteractive = true;
+                onComplete();
+            }).Begin();
     }
 
     public void SnapToRest(FigureNode node)
@@ -286,7 +426,7 @@ internal sealed class FigureManager
             _lineLayer.Children.Add(line);
 
             // Без onActivated для режима настроек — клики обрабатывает контроллер
-            var visual = CircleElementFactory.Create(childCfg, null);
+            var visual = CircleElementFactory.Create(childCfg, null, _style);
             Canvas.SetLeft(visual, restX - childCfg.Radius);
             Canvas.SetTop(visual, restY - childCfg.Radius);
             _circleLayer.Children.Add(visual);
@@ -308,7 +448,7 @@ internal sealed class FigureManager
         double lineFromX, double lineFromY, double lineToX, double lineToY,
         Action onComplete)
     {
-        var sb = new Storyboard();
+        var sb = new Storyboard { FillBehavior = FillBehavior.Stop };
 
         AddCanvasAnim(sb, visual, "(Canvas.Left)", fromL, toL);
         AddCanvasAnim(sb, visual, "(Canvas.Top)", fromT, toT);
@@ -319,13 +459,34 @@ internal sealed class FigureManager
             AddPropAnim(sb, connector, Line.Y2Property, lineFromY, lineToY);
         }
 
-        sb.Completed += (_, _) => onComplete();
+        sb.Completed += (_, _) =>
+        {
+            // Явно фиксируем конечные значения и отпускаем свойства для магнита
+            visual.BeginAnimation(Canvas.LeftProperty, null);
+            visual.BeginAnimation(Canvas.TopProperty, null);
+            Canvas.SetLeft(visual, toL);
+            Canvas.SetTop(visual, toT);
+
+            if (connector is not null)
+            {
+                connector.BeginAnimation(Line.X2Property, null);
+                connector.BeginAnimation(Line.Y2Property, null);
+                connector.X2 = lineToX;
+                connector.Y2 = lineToY;
+            }
+
+            onComplete();
+        };
         return sb;
     }
 
     private static void AddCanvasAnim(Storyboard sb, Grid target, string path, double from, double to)
     {
-        var a = new DoubleAnimation(from, to, AnimDuration) { EasingFunction = AnimEase };
+        var a = new DoubleAnimation(from, to, AnimDuration)
+        {
+            EasingFunction = AnimEase,
+            FillBehavior   = FillBehavior.Stop,
+        };
         Storyboard.SetTarget(a, target);
         Storyboard.SetTargetProperty(a, new PropertyPath(path));
         sb.Children.Add(a);
@@ -333,7 +494,11 @@ internal sealed class FigureManager
 
     private static void AddPropAnim(Storyboard sb, DependencyObject target, DependencyProperty prop, double from, double to)
     {
-        var a = new DoubleAnimation(from, to, AnimDuration) { EasingFunction = AnimEase };
+        var a = new DoubleAnimation(from, to, AnimDuration)
+        {
+            EasingFunction = AnimEase,
+            FillBehavior   = FillBehavior.Stop,
+        };
         Storyboard.SetTarget(a, target);
         Storyboard.SetTargetProperty(a, new PropertyPath(prop));
         sb.Children.Add(a);
@@ -341,7 +506,11 @@ internal sealed class FigureManager
 
     private static void AddOpacityAnim(Storyboard sb, UIElement target, double from, double to)
     {
-        var a = new DoubleAnimation(from, to, AnimDuration) { EasingFunction = AnimEase };
+        var a = new DoubleAnimation(from, to, AnimDuration)
+        {
+            EasingFunction = AnimEase,
+            FillBehavior   = FillBehavior.Stop,
+        };
         Storyboard.SetTarget(a, target);
         Storyboard.SetTargetProperty(a, new PropertyPath(UIElement.OpacityProperty));
         sb.Children.Add(a);

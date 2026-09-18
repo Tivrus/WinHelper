@@ -15,6 +15,14 @@ internal sealed class FigureNode
     public double Cx { get; set; }
     public double Cy { get; set; }
 
+    /// <summary>Текущее смещение магнита (визуальное, Cx/Cy — точка покоя).</summary>
+    public double MagnetOx { get; set; }
+    public double MagnetOy { get; set; }
+    public double MagnetScale { get; set; } = 1.0;
+
+    public double DisplayCx => Cx + MagnetOx;
+    public double DisplayCy => Cy + MagnetOy;
+
     public bool IsExpanded => ChildNodes.Count > 0;
 
     public FigureNode(CircleConfig config, Grid visual, Line? connector, FigureNode? parent)
@@ -37,29 +45,50 @@ internal sealed class FigureNode
 
         Cx = newCx;
         Cy = newCy;
+        MagnetOx = 0;
+        MagnetOy = 0;
+        MagnetScale = 1;
 
-        // 1. Обновляем визуальное положение самого узла
-        Canvas.SetLeft(Visual, Cx - Config.Radius);
-        Canvas.SetTop(Visual, Cy - Config.Radius);
+        ApplyDisplayTransform();
 
-        // 2. Обновляем конец коннектора к родителю
-        if (Connector is not null)
-        {
-            Connector.X2 = Cx;
-            Connector.Y2 = Cy;
-        }
-
-        // 3. Корректируем детей, чтобы они остались на месте
+        // Корректируем детей, чтобы они остались на месте
         foreach (var child in ChildNodes)
         {
             child.Config.OffsetX -= dx;
             child.Config.OffsetY -= dy;
+        }
+    }
 
-            // Начало коннектора ребёнка - это новый центр текущего узла
+    /// <summary>
+    /// Применяет визуальную позицию с учётом магнита (Canvas + коннектор + scale).
+    /// </summary>
+    public void ApplyDisplayTransform()
+    {
+        // Снимаем HoldEnd от storyboard раскрытия группы — иначе Canvas.SetLeft игнорируется
+        Visual.BeginAnimation(Canvas.LeftProperty, null);
+        Visual.BeginAnimation(Canvas.TopProperty, null);
+
+        Canvas.SetLeft(Visual, DisplayCx - Config.Radius);
+        Canvas.SetTop(Visual, DisplayCy - Config.Radius);
+
+        if (Connector is not null)
+        {
+            Connector.BeginAnimation(Line.X2Property, null);
+            Connector.BeginAnimation(Line.Y2Property, null);
+            Connector.X2 = DisplayCx;
+            Connector.Y2 = DisplayCy;
+        }
+
+        CircleElementFactory.SetMagnetScale(Visual, MagnetScale);
+
+        foreach (var child in ChildNodes)
+        {
             if (child.Connector is not null)
             {
-                child.Connector.X1 = Cx;
-                child.Connector.Y1 = Cy;
+                child.Connector.BeginAnimation(Line.X1Property, null);
+                child.Connector.BeginAnimation(Line.Y1Property, null);
+                child.Connector.X1 = DisplayCx;
+                child.Connector.Y1 = DisplayCy;
             }
         }
     }
@@ -69,12 +98,9 @@ internal sealed class FigureNode
     /// </summary>
     public void SnapToRest()
     {
-        Canvas.SetLeft(Visual, Cx - Config.Radius);
-        Canvas.SetTop(Visual, Cy - Config.Radius);
-        if (Connector is not null)
-        {
-            Connector.X2 = Cx;
-            Connector.Y2 = Cy;
-        }
+        MagnetOx = 0;
+        MagnetOy = 0;
+        MagnetScale = 1;
+        ApplyDisplayTransform();
     }
 }

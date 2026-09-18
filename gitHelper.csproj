@@ -12,8 +12,11 @@
 
 
   <ItemGroup>
-    <!-- figure.json копируется рядом с exe; редактируй в корне проекта -->
+    <!-- figure.json / circles.css копируются рядом с exe; редактируй в корне проекта -->
     <Content Include="figure.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="circles.css">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -40,6 +40,13 @@ public partial class PopupWindow : Window
     private FigureConfig   _figureConfig        = new();
     private bool           _suppressDeactivated;
     private double         _anchorCx, _anchorCy;
+    private int            _currentPageIndex;
+
+    /// <summary>Кружки текущей страницы.</summary>
+    private List<CircleConfig> CurrentCircles =>
+        _figureConfig.Pages.Count > 0
+            ? _figureConfig.Pages[Math.Clamp(_currentPageIndex, 0, _figureConfig.Pages.Count - 1)].Circles
+            : _figureConfig.Circles;
 
     // ── Settings mode state ───────────────────────────────────────────────────
 
@@ -79,7 +86,119 @@ public partial class PopupWindow : Window
 
         TxtHotkey.Text = _settings.HotkeyText;
 
+        MainCanvas.MouseMove  += MainCanvas_MouseMove;
+        MainCanvas.MouseLeave += (_, _) => _figure.ResetMagnet(instant: false);
+        MainCanvas.MouseWheel += MainCanvas_MouseWheel;
+
         WireTextFields();
+    }
+
+    private void MainCanvas_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_settingsMode || _activeModalConfig is not null) return;
+        _figure.UpdateMagnet(e.GetPosition(MainCanvas));
+    }
+
+    private void MainCanvas_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (_settingsMode || _activeModalConfig is not null) return;
+        if (_figureConfig.Pages.Count <= 1) return;
+
+        int delta = e.Delta > 0 ? -1 : +1;
+        SwitchPage(delta);
+        e.Handled = true;
+    }
+
+    /// <summary>Переключает страницу фигуры (колёсико / кнопки в настройках).</summary>
+    private void SwitchPage(int delta)
+    {
+        int count = _figureConfig.Pages.Count;
+        if (count <= 1) return;
+
+        _currentPageIndex = ((_currentPageIndex + delta) % count + count) % count;
+        RebuildCurrentPage();
+        PersistCurrentPage();
+        if (_settingsMode)
+            UpdateSettingsPageBar();
+    }
+
+    /// <summary>Восстанавливает индекс страницы по сохранённому Id.</summary>
+    private static int ResolvePageIndex(string? pageId, FigureConfig config)
+    {
+        if (config.Pages.Count == 0) return 0;
+        if (!string.IsNullOrEmpty(pageId))
+        {
+            for (int i = 0; i < config.Pages.Count; i++)
+            {
+                if (config.Pages[i].Id == pageId)
+                    return i;
+            }
+        }
+        return 0;
+    }
+
+    /// <summary>Сохраняет Id текущей страницы в settings.json.</summary>
+    private void PersistCurrentPage()
+    {
+        if (_figureConfig.Pages.Count == 0) return;
+        var pageId = _figureConfig.Pages[_currentPageIndex].Id;
+        if (_settings.LastPageId == pageId) return;
+        SaveSetting(s => s.LastPageId = pageId);
+    }
+
+    /// <summary>Перестраивает фигуру для текущей страницы.</summary>
+    private void RebuildCurrentPage()
+    {
+        _figure.Clear();
+        _figure.Build(_anchorCx, _anchorCy, CurrentCircles, OnCircleActivated);
+        UpdatePageIndicator();
+        PositionInputCard();
+
+        if (_settingsMode)
+        {
+            _drag.EnableForTree(_figure.RootNodes, SelectConfig);
+            ApplySettingsVisualMode(null);
+            SelectConfig(null);
+        }
+    }
+
+    private void UpdatePageIndicator()
+    {
+        int count = _figureConfig.Pages.Count;
+        if (count <= 1)
+        {
+            PageIndicator.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var name = _figureConfig.Pages[_currentPageIndex].Name;
+        PageIndicatorText.Text = $"{_currentPageIndex + 1} / {count}  ·  {name}";
+        PageIndicator.Visibility = Visibility.Visible;
+    }
+
+    // ── Управление страницами (настройки) ─────────────────────────────────────
+
+    private void BtnPagePrev_Click(object sender, RoutedEventArgs e) => SwitchPage(-1);
+    private void BtnPageNext_Click(object sender, RoutedEventArgs e) => SwitchPage(+1);
+
+    private void BtnAddPage_Click(object sender, RoutedEventArgs e)
+    {
+        var page = new FigurePage { Name = $"Страница {_figureConfig.Pages.Count + 1}" };
+        _figureConfig.Pages.Add(page);
+        _currentPageIndex = _figureConfig.Pages.Count - 1;
+        RebuildCurrentPage();
+        PersistCurrentPage();
+        UpdateSettingsPageBar();
+    }
+
+    private void BtnDeletePage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_figureConfig.Pages.Count <= 1) return;
+        _figureConfig.Pages.RemoveAt(_currentPageIndex);
+        _currentPageIndex = Math.Clamp(_currentPageIndex, 0, _figureConfig.Pages.Count - 1);
+        RebuildCurrentPage();
+        PersistCurrentPage();
+        UpdateSettingsPageBar();
     }
 
     private void TxtHotkey_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -87,51 +206,90 @@ public partial class PopupWindow : Window
         e.Handled = true;
 
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
-        if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin)
+        if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
+            or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin)
             return;
 
+        int mods = ReadKeyboardModifiers();
+        int vk = KeyInterop.VirtualKeyFromKey(key);
+        if (vk == 0) return;
+
+        string text = NativeMethods.FormatModifiers(mods) + key;
+        ApplyHotkeyBinding(HotkeyInputKind.Keyboard, mods, vk, mouseButton: 0, text);
+    }
+
+    private void TxtHotkey_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // Первый клик только фокусирует поле — захват со следующего нажатия.
+        // Mouse4/Mouse5 надёжнее ловятся через LL-хук (BeginMouseCapture).
+        if (!TxtHotkey.IsKeyboardFocusWithin)
+            return;
+
+        int button = e.ChangedButton switch
+        {
+            MouseButton.Left   => NativeMethods.MouseBtnLeft,
+            MouseButton.Right  => NativeMethods.MouseBtnRight,
+            MouseButton.Middle => NativeMethods.MouseBtnMiddle,
+            _ => 0
+        };
+        if (button == 0) return;
+
+        e.Handled = true;
+
+        int mods = ReadKeyboardModifiers();
+        string text = NativeMethods.FormatModifiers(mods) + NativeMethods.MouseButtonName(button);
+        ApplyHotkeyBinding(HotkeyInputKind.Mouse, mods, vk: 0, button, text);
+    }
+
+    private static int ReadKeyboardModifiers()
+    {
         int mods = 0;
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) mods |= NativeMethods.MOD_CONTROL;
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))     mods |= NativeMethods.MOD_ALT;
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))   mods |= NativeMethods.MOD_SHIFT;
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Windows)) mods |= NativeMethods.MOD_WIN;
+        return mods;
+    }
 
-        if (mods == 0) return; // Требуем хотя бы один модификатор
-
-        int vk = KeyInterop.VirtualKeyFromKey(key);
-        if (vk == 0) return;
-
-        string text = "";
-        if ((mods & NativeMethods.MOD_CONTROL) != 0) text += "Ctrl + ";
-        if ((mods & NativeMethods.MOD_ALT) != 0)     text += "Alt + ";
-        if ((mods & NativeMethods.MOD_SHIFT) != 0)   text += "Shift + ";
-        if ((mods & NativeMethods.MOD_WIN) != 0)     text += "Win + ";
-        text += key.ToString();
-
+    private void ApplyHotkeyBinding(HotkeyInputKind kind, int mods, int vk, int mouseButton, string text)
+    {
         TxtHotkey.Text = text;
 
         SaveSetting(s =>
         {
-            s.HotkeyModifiers = mods;
-            s.HotkeyVirtualKey = vk;
-            s.HotkeyText = text;
+            s.HotkeyKind        = kind;
+            s.HotkeyModifiers   = mods;
+            s.HotkeyVirtualKey  = vk;
+            s.HotkeyMouseButton = mouseButton;
+            s.HotkeyText        = text;
         });
 
-        // Перерегистрируем хоткей
         if (System.Windows.Application.Current is App app)
-        {
             app.Host.ApplyHotkey();
-        }
+    }
+
+    private void OnHotkeyMouseCaptured(int button, int mods)
+    {
+        if (!TxtHotkey.IsKeyboardFocusWithin) return;
+
+        string text = NativeMethods.FormatModifiers(mods) + NativeMethods.MouseButtonName(button);
+        ApplyHotkeyBinding(HotkeyInputKind.Mouse, mods, vk: 0, button, text);
+        // Снимаем фокус, чтобы не ловить повторные нажатия в режиме захвата
+        Keyboard.ClearFocus();
     }
 
     private void TxtHotkey_GotFocus(object sender, RoutedEventArgs e)
     {
-        TxtHotkey.Text = "Нажмите комбинацию...";
+        TxtHotkey.Text = "Клавиша или кнопка мыши...";
+        if (System.Windows.Application.Current is App app)
+            app.Host.BeginMouseCapture(OnHotkeyMouseCaptured);
     }
 
     private void TxtHotkey_LostFocus(object sender, RoutedEventArgs e)
     {
         TxtHotkey.Text = _settings.HotkeyText;
+        if (System.Windows.Application.Current is App app)
+            app.Host.EndMouseCapture();
     }
 
     private void WireTextFields()
@@ -153,14 +311,9 @@ public partial class PopupWindow : Window
 
     public void ShowAtCursor(System.Drawing.Point screenPos)
     {
-        // Убираем визуальный «кадр прошлого открытия»: сначала показываем окно прозрачным,
-        // затем перестраиваем фигуру в новой точке и только после этого возвращаем непрозрачность.
-        bool wasVisible = IsVisible;
+        // Сразу прячем и очищаем старую фигуру, чтобы не мелькал прошлый кадр.
         Opacity = 0;
-        if (!wasVisible)
-            Show();
-
-        _figureConfig = FigureConfigService.Load();
+        _figure.Clear();
 
         if (!_settings.SpawnAtCursor)
         {
@@ -170,15 +323,31 @@ public partial class PopupWindow : Window
                 primary.Bounds.Top  + primary.Bounds.Height / 2);
         }
 
+        // Позиционируем окно ДО показа / перестройки
         PlaceWindowAt(screenPos);
 
+        _figureConfig = FigureConfigService.Load();
+        _currentPageIndex = ResolvePageIndex(_settings.LastPageId, _figureConfig);
         ResetAllModes();
-        _figure.Build(_anchorCx, _anchorCy, _figureConfig, OnCircleActivated);
+        _figure.MagnetInteractive = true;
+        _figure.SetSettingsMode(false);
+        _figure.Build(_anchorCx, _anchorCy, CurrentCircles, OnCircleActivated);
+        UpdatePageIndicator();
         PositionInputCard();
-
         UpdateLayout();
-        Opacity = 1;
-        Activate();
+
+        // Показываем уже готовое окно в новой позиции — без кадра на старом месте.
+        // Visibility=Visible (вместо Show) не пересоздаёт HWND и рендерит сразу в нужной точке.
+        if (!IsVisible)
+            Visibility = Visibility.Visible;
+
+        // Opacity=1 только после кадра с уже готовой раскладкой
+        Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
+        {
+            if (!IsVisible) return;
+            Opacity = 1;
+            Activate();
+        });
     }
 
     public void ShowForSettings()
@@ -191,6 +360,9 @@ public partial class PopupWindow : Window
         ShowAtCursor(center);
 
         _settingsMode              = true;
+        _figure.SetSettingsMode(true);
+        _figure.MagnetInteractive  = false;
+        _figure.ResetMagnet();
         DimOverlay.Visibility      = Visibility.Visible;
         SettingsToolbar.Visibility = Visibility.Visible;
 
@@ -205,21 +377,39 @@ public partial class PopupWindow : Window
         SettingsHintText.Visibility = Visibility.Visible;
 
         _drag.EnableForTree(_figure.RootNodes, SelectConfig);
+        ApplySettingsVisualMode(null);
+        UpdateSettingsPageBar();
+    }
+
+    private void UpdateSettingsPageBar()
+    {
+        int count = _figureConfig.Pages.Count;
+        if (count == 0) return;
+        _currentPageIndex = Math.Clamp(_currentPageIndex, 0, count - 1);
+        TxtPageName.Text = $"{_currentPageIndex + 1}/{count} · {_figureConfig.Pages[_currentPageIndex].Name}";
+        BtnDeletePage.IsEnabled = count > 1;
     }
 
     public void HidePopup()
     {
+        PersistCurrentPage();
         ExitModalMode(instant: true);
         _figure.CollapseAllGroupsImmediate();
+        _figure.ResetMagnet();
+        _figure.Clear();
         _drag.Reset();
         _settingsMode        = false;
+        _figure.SetSettingsMode(false);
+        _figure.MagnetInteractive = true;
         _selectedChildPath.Clear();
 
         DimOverlay.Visibility        = Visibility.Collapsed;
         SettingsToolbar.Visibility   = Visibility.Collapsed;
         ConfirmClosePanel.Visibility = Visibility.Collapsed;
         SettingsPanel.Visibility     = Visibility.Collapsed;
-        Hide();
+        PageIndicator.Visibility     = Visibility.Collapsed;
+        Opacity = 0;
+        Visibility = Visibility.Collapsed;
     }
 
     // ── Window placement ──────────────────────────────────────────────────────
@@ -379,8 +569,8 @@ public partial class PopupWindow : Window
         InputCard.UpdateLayout();
         double cardH = InputCard.ActualHeight > 1 ? InputCard.ActualHeight + 12 : 200;
 
-        double figBottom = _figureConfig.Circles.Count > 0
-            ? _figureConfig.Circles.Max(c => c.OffsetY + c.Radius)
+        double figBottom = CurrentCircles.Count > 0
+            ? CurrentCircles.Max(c => c.OffsetY + c.Radius)
             : 40;
 
         Canvas.SetLeft(InputCard, Math.Clamp(_anchorCx - cardW / 2, pad, Width  - cardW - pad));
@@ -388,6 +578,24 @@ public partial class PopupWindow : Window
     }
 
     // ── Browse dialog ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Выполняет действие (обычно — показ WinForms-диалога), не давая окну
+    /// скрыться по событию Deactivated, и возвращает фокус после.
+    /// </summary>
+    internal void SuppressDeactivatedWhile(Action action)
+    {
+        _suppressDeactivated = true;
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _suppressDeactivated = false;
+            Activate();
+        }
+    }
 
     private void BtnBrowse_Click(object sender, RoutedEventArgs e)
     {
@@ -424,8 +632,8 @@ public partial class PopupWindow : Window
         {
             using var dlg = new WF.OpenFileDialog
             {
-                Title  = "Выберите исполняемый файл",
-                Filter = "Исполняемые файлы (*.exe)|*.exe|Все файлы (*.*)|*.*",
+                Title  = "Выберите .exe или скрипт AutoHotkey v2",
+                Filter = "Программы и скрипты|*.exe;*.ahk|Исполняемые (*.exe)|*.exe|AutoHotkey v2 (*.ahk)|*.ahk|Все файлы (*.*)|*.*",
             };
             if (!string.IsNullOrWhiteSpace(PropExePath.Text))
             {
